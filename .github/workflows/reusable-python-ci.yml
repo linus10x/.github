@@ -1,0 +1,63 @@
+# Reusable Python CI: lint (ruff) and test (pytest), hardened per README standards.
+# Caller: jobs.ci.uses: linus10x/.github/.github/workflows/reusable-python-ci.yml@main
+name: reusable-python-ci
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: "3.12"
+      use-uv:
+        description: Install with uv (uv.lock present) instead of pip.
+        type: boolean
+        default: false
+      install-command:
+        description: Override the pip install command.
+        type: string
+        default: ""
+      test-command:
+        type: string
+        default: "pytest -q"
+      timeout-minutes:
+        type: number
+        default: 15
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: ${{ inputs.use-uv }}
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ inputs.python-version }}
+          enable-cache: true
+      - if: ${{ !inputs.use-uv }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          if [ "${{ inputs.use-uv }}" = "true" ]; then
+            uv sync --frozen --all-groups
+          elif [ -n "${{ inputs.install-command }}" ]; then
+            ${{ inputs.install-command }}
+          else
+            python -m pip install --upgrade pip
+            if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt;
+            elif [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+            if [ -f pyproject.toml ]; then pip install -e ".[dev]" 2>/dev/null || pip install -e .; fi
+            pip install ruff pytest
+          fi
+      - name: Ruff
+        run: ${{ inputs.use-uv && 'uv run ' || '' }}ruff check .
+      - name: Tests
+        run: ${{ inputs.use-uv && 'uv run ' || '' }}${{ inputs.test-command }}
